@@ -256,11 +256,12 @@ def main():
         versions_cfg.get("B", {}).get("time_filter_hours", [4, 5, 6, 7, 8, 17])
     )
 
-    output_base = Path(args.output_dir or
-                       general_cfg.get("output_dir", "output")) / "monthly"
+    strategy = get_strategy(args.strategy)
+
+    _base_output = Path(args.output_dir or general_cfg.get("output_dir", "output"))
+    output_base = _base_output / strategy.name / "monthly"
     output_base.mkdir(parents=True, exist_ok=True)
 
-    strategy = get_strategy(args.strategy)
     strategy_params = {
         "rsi_up":         args.rsi_up,
         "rsi_down":       args.rsi_down,

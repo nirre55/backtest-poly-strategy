@@ -1212,10 +1212,6 @@ def main():
     initial_capital = get_initial_capital(cfg)
     payouts_cfg     = get_payouts(cfg)
 
-    # Output dir : CLI > YAML > défaut
-    output_dir_str = (args.output_dir
-                      or cfg.get("general", {}).get("output_dir", "output"))
-
     # Versions à tester : CLI > YAML > défaut [A, B]
     general_cfg = cfg.get("general", {})
     versions_cfg = general_cfg.get("versions", {})
@@ -1263,6 +1259,11 @@ def main():
     # ── Stratégie ──────────────────────────────────────────
     strategy = get_strategy(args.strategy)
     print(f"[INFO] Stratégie        : {strategy.name}")
+
+    # Output dir : CLI > YAML > défaut, sous-dossier par stratégie
+    _base_output = (args.output_dir
+                    or cfg.get("general", {}).get("output_dir", "output"))
+    output_dir_str = str(Path(_base_output) / strategy.name)
 
     # ── Indicateurs (délégués à la stratégie) ──────────────
     df = strategy.prepare(df)
