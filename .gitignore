@@ -19,3 +19,6 @@ build/
 htmlcov/
 .coverage
 .claude/
+*.csv
+*.json
+output/*
