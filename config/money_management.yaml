@@ -36,6 +36,64 @@ general:
       loss_payout: -1.00
 
 # ============================================================
+# Paramètres des stratégies de signal
+# Priorité : CLI > YAML > valeur par défaut du code
+# ============================================================
+
+signal_strategies:
+  # ----------------------------------------------------------
+  # streak_rsi — Streak consécutif + RSI7 + ATR14 + body ratio
+  # ----------------------------------------------------------
+  streak_rsi:
+    rsi_up: 35.0 # RSI7 ≤ seuil → signal UP
+    rsi_down: 65.0 # RSI7 ≥ seuil → signal DOWN
+    streak_min: 3 # nombre minimum de bougies consécutives
+    body_ratio_min: 0.60 # corps / range ≥ seuil
+    range_atr_mult: 1.0 # range ≥ mult × ATR14
+    use_streak: true
+    use_rsi: true
+    use_range: true
+    use_body_ratio: true
+
+  # ----------------------------------------------------------
+  # wick_volume_rebound — Mèche de rejet + RSI + Volume
+  # ----------------------------------------------------------
+  wick_volume_rebound:
+    rsi_oversold: 30.0 # RSI7 < seuil → condition UP
+    rsi_overbought: 70.0 # RSI7 > seuil → condition DOWN
+    wick_body_mult: 1.5 # mèche ≥ mult × corps
+    vol_ma_mult: 1.25 # volume ≥ mult × vma20
+
+  # ----------------------------------------------------------
+  # wick_momentum — Rejet de mèche OU Momentum volume
+  # ----------------------------------------------------------
+  wick_momentum:
+    rej_vol_mult: 1.5 # volume min pour le chemin Rejet (× vma20)
+    rej_wick_mult: 2.0 # mèche min pour le chemin Rejet (× corps)
+    mom_vol_mult: 2.5 # volume min pour le chemin Momentum (× vma20)
+    mom_body_ratio: 0.8 # corps min pour le chemin Momentum (× range)
+
+  # ----------------------------------------------------------
+  # sniper — Rejet Extrême (volume flash + mèche massive)
+  # ----------------------------------------------------------
+  sniper:
+    vol_mult: 4.0 # volume ≥ mult × vma20
+    wick_mult: 3.0 # mèche ≥ mult × corps
+
+  # ----------------------------------------------------------
+  # momentum — Suivi de tendance par variation %
+  # ----------------------------------------------------------
+  momentum:
+    threshold_pct: 0.2 # variation minimum en % pour déclencher un signal
+
+  # ----------------------------------------------------------
+  # alternating — Alternance VERTE/ROUGE avec switch de phase
+  # ----------------------------------------------------------
+  alternating:
+    use_loss_streak_switch: false # false = alternance pure sans jamais switcher
+    loss_streak_switch: 2 # nb de pertes consécutives avant d'inverser la phase
+
+# ============================================================
 # Stratégies de money management
 # ============================================================
 
@@ -96,7 +154,7 @@ strategies:
   # ----------------------------------------------------------
   MM7_anti_martingale:
     enabled: true
-    base_fraction_pct: 5.0 # % de base du capital
+    base_fraction_pct: 1.0 # % de base du capital
     max_fraction_pct: 10.0 # plafond absolu (% du capital)
     win_multipliers:
       - min_win_streak: 2
@@ -110,7 +168,7 @@ strategies:
   # ----------------------------------------------------------
   MM8_reduction_after_losses:
     enabled: true
-    base_fraction_pct: 5.0
+    base_fraction_pct: 1.0
     loss_steps:
       - min_loss_streak: 3
         fraction_pct: 2.5 # mise réduite après 3 pertes d'affilée
@@ -123,7 +181,7 @@ strategies:
   # ----------------------------------------------------------
   MM9_pause_after_losses:
     enabled: true
-    base_fraction_pct: 5.0
+    base_fraction_pct: 1.0
     pause_after_n_losses: 5 # nombre de pertes consécutives avant pause
     pause_trades: 10 # nombre de signaux ignorés
     # Après un gain : reset du compteur de pertes
@@ -133,7 +191,7 @@ strategies:
   # ----------------------------------------------------------
   MM10_combined:
     enabled: true
-    base_fraction_pct: 5.0
+    base_fraction_pct: 1.0
     max_fraction_pct: 10.0
     win_multipliers:
       - min_win_streak: 2

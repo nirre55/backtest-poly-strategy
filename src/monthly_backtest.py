@@ -22,7 +22,7 @@ from backtest import (
     load_data, normalize_columns, parse_timestamps,
     run_mm_simulation, compute_global_stats, compute_streak_stats,
     compute_drawdown_stats, compute_time_to_targets, compute_time_stats,
-    compute_period_stats, export_reports,
+    compute_period_stats, export_reports, invert_signals,
     MM_KEY_MAP, CAPITAL_TARGETS, MONTREAL_TZ,
 )
 from strategies import get_strategy, list_strategies
@@ -48,6 +48,7 @@ def run_month(
     cfg: dict,
     timezone: str,
     strategy_params: dict,
+    inverse: bool = False,
 ) -> list:
     """
     Lance le backtest complet sur un mois.
@@ -65,6 +66,8 @@ def run_month(
             time_filter_hours=time_filter_hours,
             params=strategy_params,
         )
+        if inverse and not sig.empty:
+            sig = invert_signals(sig)
         signals_cache[version] = sig
 
     all_results = []
@@ -233,6 +236,8 @@ def parse_args():
     parser.add_argument("--no-rsi",        action="store_true")
     parser.add_argument("--no-range",      action="store_true")
     parser.add_argument("--no-body-ratio", action="store_true")
+    parser.add_argument("--inverse",       action="store_true",
+                        help="Inverser les signaux : UP -> DOWN et DOWN -> UP")
 
     return parser.parse_args()
 
@@ -262,16 +267,42 @@ def main():
     output_base = _base_output / strategy.name / "monthly"
     output_base.mkdir(parents=True, exist_ok=True)
 
+    _yaml_sparams = cfg.get("signal_strategies", {}).get(strategy.name, {})
+
+    def _pick(cli_val, cli_default, yaml_key, yaml_default=None):
+        if cli_val != cli_default:
+            return cli_val
+        return _yaml_sparams.get(yaml_key, cli_val if yaml_default is None else yaml_default)
+
     strategy_params = {
-        "rsi_up":         args.rsi_up,
-        "rsi_down":       args.rsi_down,
-        "body_ratio_min": args.body_ratio,
-        "range_atr_mult": args.range_mult,
-        "streak_min":     args.streak_min,
-        "use_streak":     not args.no_streak,
-        "use_rsi":        not args.no_rsi,
-        "use_range":      not args.no_range,
-        "use_body_ratio": not args.no_body_ratio,
+        # streak_rsi
+        "rsi_up":         _pick(args.rsi_up,    35.0, "rsi_up",         35.0),
+        "rsi_down":       _pick(args.rsi_down,  65.0, "rsi_down",       65.0),
+        "body_ratio_min": _pick(args.body_ratio, 0.60, "body_ratio_min", 0.60),
+        "range_atr_mult": _pick(args.range_mult, 1.0,  "range_atr_mult", 1.0),
+        "streak_min":     _pick(args.streak_min, 3,    "streak_min",     3),
+        "use_streak":     _yaml_sparams.get("use_streak",     not args.no_streak),
+        "use_rsi":        _yaml_sparams.get("use_rsi",        not args.no_rsi),
+        "use_range":      _yaml_sparams.get("use_range",      not args.no_range),
+        "use_body_ratio": _yaml_sparams.get("use_body_ratio", not args.no_body_ratio),
+        # wick_volume_rebound
+        "rsi_oversold":   _yaml_sparams.get("rsi_oversold",   30.0),
+        "rsi_overbought": _yaml_sparams.get("rsi_overbought", 70.0),
+        "wick_body_mult": _yaml_sparams.get("wick_body_mult", 1.5),
+        "vol_ma_mult":    _yaml_sparams.get("vol_ma_mult",    1.25),
+        # wick_momentum
+        "rej_vol_mult":   _yaml_sparams.get("rej_vol_mult",   1.5),
+        "rej_wick_mult":  _yaml_sparams.get("rej_wick_mult",  2.0),
+        "mom_vol_mult":   _yaml_sparams.get("mom_vol_mult",   2.5),
+        "mom_body_ratio": _yaml_sparams.get("mom_body_ratio", 0.8),
+        # sniper
+        "vol_mult":       _yaml_sparams.get("vol_mult",  4.0),
+        "wick_mult":      _yaml_sparams.get("wick_mult", 3.0),
+        # momentum
+        "threshold_pct":  _yaml_sparams.get("threshold_pct", 0.2),
+        # alternating
+        "use_loss_streak_switch": _yaml_sparams.get("use_loss_streak_switch", True),
+        "loss_streak_switch":     _yaml_sparams.get("loss_streak_switch", 2),
     }
 
     print(f"[INFO] Stratégie        : {strategy.name}")
@@ -310,6 +341,7 @@ def main():
             versions_to_run, time_filter_hours,
             payouts_cfg, payouts_to_run, mms_to_run,
             initial_capital, cfg, args.timezone, strategy_params,
+            inverse=args.inverse,
         )
 
         if not all_results:

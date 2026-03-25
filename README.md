@@ -113,6 +113,7 @@ Lance le backtest complet sur un fichier CSV. Teste toutes les combinaisons de v
 | `--output-dir` | `output/` | Dossier de sortie |
 | `--split` | — | Fraction train ex: `0.7` → teste sur les 30% les plus récents |
 | `--time-filter` | — | Force la Version B uniquement (filtre horaire) |
+| `--inverse` | — | Inverse les signaux : UP → DOWN et DOWN → UP |
 
 #### Ajuster les seuils du signal
 
@@ -142,6 +143,9 @@ Lance le backtest complet sur un fichier CSV. Teste toutes les combinaisons de v
 
 # Dossier de sortie personnalisé
 .venv\Scripts\python src/backtest.py --input data/... --output-dir output_strict/
+
+# Inverser les signaux (tester la stratégie à l'envers)
+.venv\Scripts\python src/backtest.py --input data/... --inverse
 ```
 
 #### Fichiers générés dans `output/`
@@ -253,6 +257,49 @@ Génère des fichiers CSV avec les timestamps dans l'ordre chronologique origina
 
 ## Configuration — `config/money_management.yaml`
 
+### Paramètres des stratégies de signal
+
+Chaque stratégie a sa propre section dans le YAML. Les valeurs du YAML servent de base — le CLI les surcharge si tu passes une valeur différente du défaut.
+
+```yaml
+signal_strategies:
+
+  streak_rsi:
+    rsi_up: 35.0          # RSI7 ≤ seuil → signal UP
+    rsi_down: 65.0        # RSI7 ≥ seuil → signal DOWN
+    streak_min: 3         # bougies consécutives minimum
+    body_ratio_min: 0.60  # corps / range minimum
+    range_atr_mult: 1.0   # range ≥ mult × ATR14
+    use_streak: true
+    use_rsi: true
+    use_range: true
+    use_body_ratio: true
+
+  wick_volume_rebound:
+    rsi_oversold: 30.0    # RSI7 < seuil → condition UP
+    rsi_overbought: 70.0  # RSI7 > seuil → condition DOWN
+    wick_body_mult: 1.5   # mèche ≥ mult × corps
+    vol_ma_mult: 1.25     # volume ≥ mult × vma20
+
+  wick_momentum:
+    rej_vol_mult: 1.5     # volume min Rejet (× vma20)
+    rej_wick_mult: 2.0    # mèche min Rejet (× corps)
+    mom_vol_mult: 2.5     # volume min Momentum (× vma20)
+    mom_body_ratio: 0.8   # corps min Momentum (× range)
+
+  sniper:
+    vol_mult: 4.0         # volume ≥ mult × vma20
+    wick_mult: 3.0        # mèche ≥ mult × corps
+
+  momentum:
+    threshold_pct: 0.2    # variation minimum en % pour déclencher un signal
+```
+
+> **Priorité :** CLI > YAML > valeur par défaut du code.
+> Exemple : `--rsi-up 30` surcharge le `rsi_up: 35.0` du YAML.
+
+---
+
 ### Versions A et B
 
 ```yaml
@@ -300,26 +347,116 @@ general:
 
 ---
 
-## La stratégie de signal (`streak_rsi`)
+## Stratégies disponibles
 
-Le signal est calculé sur la **bougie fermée i**, le trade est pris sur la **bougie i+1**.
-
-### Signal UP (prédire bougie verte)
-- Streak de bougies rouges consécutives ≥ 3
-- RSI7 ≤ 35
-- Range ≥ 1.0 × ATR14
-- Body ratio ≥ 0.60
-
-### Signal DOWN (prédire bougie rouge)
-- Streak de bougies vertes consécutives ≥ 3
-- RSI7 ≥ 65
-- Range ≥ 1.0 × ATR14
-- Body ratio ≥ 0.60
-
-### Résultat du trade
+Le signal est toujours calculé sur la **bougie fermée i**, le trade pris sur la **bougie i+1**.
 - Bougie i+1 verte + signal UP → **win**
 - Bougie i+1 rouge + signal DOWN → **win**
 - Bougie neutre (open == close) → **ignorée**
+
+---
+
+### `streak_rsi` — Streak + RSI + ATR + Body ratio
+
+Détecte un épuisement directionnel : X bougies consécutives dans le même sens, confirmé par un RSI tendu, un range actif et un corps solide.
+
+| Signal | Conditions |
+|--------|-----------|
+| UP | streak rouge ≥ 3 · RSI7 ≤ 35 · range ≥ 1×ATR14 · body ratio ≥ 0.60 |
+| DOWN | streak vert ≥ 3 · RSI7 ≥ 65 · range ≥ 1×ATR14 · body ratio ≥ 0.60 |
+
+```bash
+.venv\Scripts\python src/backtest.py --input data/... --strategy streak_rsi
+# Options : --rsi-up, --rsi-down, --streak-min, --body-ratio, --range-mult
+#           --no-rsi, --no-streak, --no-range, --no-body-ratio
+```
+
+---
+
+### `wick_volume_rebound` — Mèche + RSI + Volume
+
+Détecte un rejet de prix violent : mèche longue (au moins 1.5× le corps) sur une bougie survendue/surachetée avec un volume supérieur à la normale.
+
+| Signal | Conditions |
+|--------|-----------|
+| UP | bougie rouge · RSI7 < 30 · mèche basse > body×1.5 · volume > vma20×1.25 |
+| DOWN | bougie verte · RSI7 > 70 · mèche haute > body×1.5 · volume > vma20×1.25 |
+
+```bash
+.venv\Scripts\python src/backtest.py --input data/... --strategy wick_volume_rebound
+```
+
+---
+
+### `wick_momentum` — Rejet de mèche OU Momentum volume
+
+Deux chemins par direction. Le **Rejet** cible un renversement après un rejet violent (mèche ≥ 2× body, volume ≥ 1.5×). Le **Momentum** cible une continuation explosive (corps ≥ 80% du range, volume ≥ 2.5×).
+
+| Signal | Chemin | Conditions |
+|--------|--------|-----------|
+| UP | Rejet | bougie rouge · volume > vma20×1.5 · mèche basse > body×2 |
+| UP | Momentum | bougie verte · volume > vma20×2.5 · body > range×0.8 |
+| DOWN | Rejet | bougie verte · volume > vma20×1.5 · mèche haute > body×2 |
+| DOWN | Momentum | bougie rouge · volume > vma20×2.5 · body > range×0.8 |
+
+La colonne `signal_type` dans les CSV de trades indique `rejet` ou `momentum` pour chaque signal.
+
+```bash
+.venv\Scripts\python src/backtest.py --input data/... --strategy wick_momentum
+```
+
+---
+
+### `sniper` — Rejet Extrême (volume flash + mèche massive)
+
+Stratégie très sélective visant un winrate maximum (~68%). Ne se déclenche que sur des configurations rares : volume 4× la normale ET mèche de rejet 3× le corps. Génère peu de signaux mais de haute conviction.
+
+| Signal | Conditions |
+|--------|-----------|
+| UP | bougie rouge · volume > vma20×4.0 · mèche basse > corps×3.0 |
+| DOWN | bougie verte · volume > vma20×4.0 · mèche haute > corps×3.0 |
+
+La colonne `vol_ratio` dans les CSV de trades indique le ratio volume/vma20 de chaque signal.
+
+```bash
+.venv\Scripts\python src/backtest.py --input data/... --strategy sniper
+```
+
+---
+
+### `momentum` — Suivi de tendance
+
+Stratégie simple qui suit la force du marché : si la bougie actuelle est suffisamment forte dans un sens, on parie que la suivante continue dans la même direction. Génère beaucoup de trades, winrate attendu ~54%.
+
+| Signal | Conditions |
+|--------|-----------|
+| UP | bougie verte · variation > +0.2% |
+| DOWN | bougie rouge · variation < -0.2% |
+
+La colonne `variation_pct` dans les CSV de trades indique le % de variation de la bougie signal.
+
+```bash
+.venv\Scripts\python src/backtest.py --input data/... --strategy momentum
+# Ajuster le seuil de variation (défaut 0.2%) :
+# paramètre threshold_pct dans strategy_params
+```
+
+---
+
+### `alternating` — Alternance VERTE/ROUGE avec switch de phase
+
+Stratégie systématique sans indicateur : on alterne les prédictions VERTE/ROUGE à chaque bougie. La phase de départ est déterminée par la première bougie du fichier (opposé de sa couleur). Dès que `loss_streak_switch` pertes consécutives sont atteintes (défaut : 2), la phase s'inverse et l'alternance repart depuis la nouvelle phase.
+
+| Paramètre | Défaut | Description |
+|---|---|---|
+| `use_loss_streak_switch` | `true` | `false` = alternance pure, sans jamais switcher |
+| `loss_streak_switch` | `2` | Nombre de pertes consécutives avant d'inverser la phase |
+
+```bash
+.venv\Scripts\python src/backtest.py --input data/... --strategy alternating
+```
+
+> **Note :** cette stratégie évalue chaque bougie à sa fermeture (pas de décalage i+1). Elle couvre 100% des bougies non-neutres du fichier.
 
 ---
 
@@ -391,3 +528,16 @@ Les séries sont comptées à leur longueur totale. Exemple : `loss, loss, loss,
 | Référence neutre | MM1 (mise fixe 1$) |
 
 > MM4 (martingale) : la ruine arrive quand la mise dépasse le capital disponible, pas automatiquement après N pertes. Avec suffisamment de capital accumulé, on peut survivre à 13 pertes consécutives.
+
+### Seuil de liquidation (`min_capital`)
+
+Par défaut, toute simulation est arrêtée dès que le capital tombe **sous 1$** — la stratégie est considérée comme liquidée. Ce seuil est configurable par MM dans le YAML :
+
+```yaml
+MM11_alternating:
+  enabled: true
+  min_capital: 5.0   # arrêt si capital < 5$
+  ...
+```
+
+Ce comportement s'applique à tous les MM, y compris ceux en pourcentage fixe qui sinon continueraient à trader avec des fractions infinitésimales de capital.

@@ -12,9 +12,19 @@ Usage dans la CLI :
 
 from .base import BaseStrategy
 from .streak_rsi import StreakRSIStrategy
+from .wick_volume_rebound import WickVolumeReboundStrategy
+from .wick_momentum import WickMomentumStrategy
+from .sniper import SniperStrategy
+from .momentum import MomentumStrategy
+from .alternating import AlternatingStrategy
 
 REGISTRY: dict[str, type[BaseStrategy]] = {
-    "streak_rsi": StreakRSIStrategy,
+    "streak_rsi":           StreakRSIStrategy,
+    "wick_volume_rebound":  WickVolumeReboundStrategy,
+    "wick_momentum":        WickMomentumStrategy,
+    "sniper":               SniperStrategy,
+    "momentum":             MomentumStrategy,
+    "alternating":          AlternatingStrategy,
 }
 
 

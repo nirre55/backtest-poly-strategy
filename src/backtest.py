@@ -380,6 +380,16 @@ def apply_money_management(
             bet = 1.0
 
         # ── Vérification capital ───────────────────────────────
+        min_capital = float(mm_cfg.get("min_capital", 1.0))
+        if capital < min_capital:
+            ruine        = True
+            ruine_reason = f"Capital liquidé ({capital:.6f}$) sous le seuil minimum ({min_capital}$)"
+            results.append(_trade_row(
+                idx, row, capital, 0.0, "ruine", 0.0, capital,
+                win_streak, loss_streak, False, peak, max_equity,
+            ))
+            break
+
         if bet > capital:
             ruine        = True
             ruine_reason = f"Capital insuffisant ({capital:.2f}$) pour la mise ({bet:.2f}$)"
@@ -488,6 +498,14 @@ def _apply_mm4_mm5(
         capital_before = capital
         bet_used     = bet
 
+        min_capital = float(mm_cfg.get("min_capital", 1.0))
+        if capital < min_capital:
+            ruine        = True
+            ruine_reason = f"Capital liquidé ({capital:.6f}$) sous le seuil minimum ({min_capital}$)"
+            results.append(_trade_row(idx, row, capital, 0.0, "ruine", 0.0, capital,
+                                      win_streak, loss_streak, False, peak, max_equity))
+            break
+
         if bet_used > capital:
             ruine        = True
             ruine_reason = f"Capital insuffisant ({capital:.2f}$) pour la mise ({bet_used:.2f}$)"
@@ -549,6 +567,17 @@ def _trade_row(idx, row, capital_before, bet, result, pnl, capital_after,
         "pause_active":   pause_active,
         "drawdown_pct":   round(float(drawdown_pct), 4),
     }
+
+
+def invert_signals(trades: pd.DataFrame) -> pd.DataFrame:
+    """
+    Inverse les signaux : UP -> DOWN, DOWN -> UP.
+    Recalcule le résultat en conséquence (win/loss s'échangent).
+    """
+    trades = trades.copy()
+    trades["direction"] = trades["direction"].map({"UP": "DOWN", "DOWN": "UP"})
+    trades["result"]    = trades["result"].map({"win": "loss", "loss": "win"})
+    return trades
 
 
 def run_mm_simulation(
@@ -1201,6 +1230,10 @@ def parse_args():
     parser.add_argument("--split",        type=float, default=None,
                         help="Fraction train (ex: 0.7 pour 70/30 split)")
 
+    # Inverse
+    parser.add_argument("--inverse", action="store_true",
+                        help="Inverser les signaux : UP -> DOWN et DOWN -> UP")
+
     return parser.parse_args()
 
 
@@ -1278,17 +1311,54 @@ def main():
     if args.walk_forward:
         print("[INFO] Mode walk-forward active (donnees deja triees chronologiquement).")
 
-    # Paramètres transmis à la stratégie (chaque stratégie prend ce dont elle a besoin)
+    # Paramètres transmis à la stratégie :
+    # YAML signal_strategies.<name> → base, CLI → surcharge si valeur non-défaut
+    _yaml_sparams = (
+        cfg.get("signal_strategies", {}).get(strategy.name, {})
+    )
+
+    # Valeurs CLI (les argparse defaults sont les mêmes que le code → on surcharge
+    # seulement si l'utilisateur a explicitement passé une valeur différente du défaut)
+    _cli_defaults = {
+        "rsi_up": 35.0, "rsi_down": 65.0, "body_ratio": 0.60,
+        "range_mult": 1.0, "streak_min": 3,
+    }
+
+    def _pick(cli_val, cli_default, yaml_key, yaml_default=None):
+        """Retourne la valeur CLI si elle diffère du défaut, sinon la valeur YAML."""
+        if cli_val != cli_default:
+            return cli_val
+        return _yaml_sparams.get(yaml_key, cli_val if yaml_default is None else yaml_default)
+
     strategy_params = {
-        "rsi_up":         args.rsi_up,
-        "rsi_down":       args.rsi_down,
-        "body_ratio_min": args.body_ratio,
-        "range_atr_mult": args.range_mult,
-        "streak_min":     args.streak_min,
-        "use_streak":     not args.no_streak,
-        "use_rsi":        not args.no_rsi,
-        "use_range":      not args.no_range,
-        "use_body_ratio": not args.no_body_ratio,
+        # streak_rsi
+        "rsi_up":         _pick(args.rsi_up,    35.0, "rsi_up",         35.0),
+        "rsi_down":       _pick(args.rsi_down,  65.0, "rsi_down",       65.0),
+        "body_ratio_min": _pick(args.body_ratio, 0.60, "body_ratio_min", 0.60),
+        "range_atr_mult": _pick(args.range_mult, 1.0,  "range_atr_mult", 1.0),
+        "streak_min":     _pick(args.streak_min, 3,    "streak_min",     3),
+        "use_streak":     _yaml_sparams.get("use_streak",     not args.no_streak),
+        "use_rsi":        _yaml_sparams.get("use_rsi",        not args.no_rsi),
+        "use_range":      _yaml_sparams.get("use_range",      not args.no_range),
+        "use_body_ratio": _yaml_sparams.get("use_body_ratio", not args.no_body_ratio),
+        # wick_volume_rebound
+        "rsi_oversold":   _yaml_sparams.get("rsi_oversold",   30.0),
+        "rsi_overbought": _yaml_sparams.get("rsi_overbought", 70.0),
+        "wick_body_mult": _yaml_sparams.get("wick_body_mult", 1.5),
+        "vol_ma_mult":    _yaml_sparams.get("vol_ma_mult",    1.25),
+        # wick_momentum
+        "rej_vol_mult":   _yaml_sparams.get("rej_vol_mult",   1.5),
+        "rej_wick_mult":  _yaml_sparams.get("rej_wick_mult",  2.0),
+        "mom_vol_mult":   _yaml_sparams.get("mom_vol_mult",   2.5),
+        "mom_body_ratio": _yaml_sparams.get("mom_body_ratio", 0.8),
+        # sniper
+        "vol_mult":       _yaml_sparams.get("vol_mult",  4.0),
+        "wick_mult":      _yaml_sparams.get("wick_mult", 3.0),
+        # momentum
+        "threshold_pct":  _yaml_sparams.get("threshold_pct", 0.2),
+        # alternating
+        "use_loss_streak_switch": _yaml_sparams.get("use_loss_streak_switch", True),
+        "loss_streak_switch":     _yaml_sparams.get("loss_streak_switch", 2),
     }
 
     # ── Génération des signaux par version ─────────────────
@@ -1301,7 +1371,12 @@ def main():
             time_filter_hours=time_filter_hours,
             params=strategy_params,
         )
+        if args.inverse and not sig.empty:
+            sig = invert_signals(sig)
         signals_cache[version] = sig
+
+    if args.inverse:
+        print("[INFO] Mode INVERSE actif — signaux UP/DOWN retournés.")
 
     # ── Simulations ────────────────────────────────────────
     all_results = []
