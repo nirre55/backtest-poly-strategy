@@ -190,8 +190,9 @@ def build_global_summary(monthly_data: list, initial_capital: float) -> str:
         "---------------|------------|--------------|-----------------|"
     )
     for r in rows:
+        strat_safe = r['strategie'].replace("|", "·")
         lines.append(
-            f"| {r['strategie']} "
+            f"| {strat_safe} "
             f"| {r['mois_testes']} "
             f"| {r['mois_rentables']} "
             f"| {r['pct_rentables']:.1f}% "
@@ -263,8 +264,10 @@ def main():
 
     strategy = get_strategy(args.strategy)
 
+    _symbol = Path(args.input).stem.split("_")[0].upper()
+
     _base_output = Path(args.output_dir or general_cfg.get("output_dir", "output"))
-    output_base = _base_output / strategy.name / "monthly"
+    output_base = _base_output / _symbol / strategy.name / "monthly"
     output_base.mkdir(parents=True, exist_ok=True)
 
     _yaml_sparams = cfg.get("signal_strategies", {}).get(strategy.name, {})

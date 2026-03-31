@@ -529,6 +529,23 @@ Les séries sont comptées à leur longueur totale. Exemple : `loss, loss, loss,
 
 > MM4 (martingale) : la ruine arrive quand la mise dépasse le capital disponible, pas automatiquement après N pertes. Avec suffisamment de capital accumulé, on peut survivre à 13 pertes consécutives.
 
+### Mise minimum (`min_bet`)
+
+Par défaut, la mise est toujours **au minimum 1$**, même si le calcul en pourcentage donne moins. Configurable globalement dans le YAML :
+
+```yaml
+general:
+  min_bet: 1.0   # mise minimum pour tous les MM
+```
+
+Ou par MM individuellement :
+```yaml
+MM2_fixed_1pct:
+  min_bet: 2.0   # surcharge le min global pour ce MM
+```
+
+---
+
 ### Seuil de liquidation (`min_capital`)
 
 Par défaut, toute simulation est arrêtée dès que le capital tombe **sous 1$** — la stratégie est considérée comme liquidée. Ce seuil est configurable par MM dans le YAML :

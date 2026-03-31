@@ -11,6 +11,7 @@
 general:
   starting_capital: 100.0
   output_dir: output
+  min_bet: 1.0          # mise minimum pour tous les MM (si % < 1$, on mise 1$)
 
   # Versions à tester
   versions:
@@ -143,7 +144,7 @@ strategies:
   # ----------------------------------------------------------
   MM6_martingale_limited:
     enabled: true
-    sequence: [1, 1, 2, 4, 8, 16, 32] # mises selon les pertes consécutives
+    sequence: [1, 1, 1, 2, 2, 3, 4, 6, 8, 10, 13, 17, 23] # mises selon les pertes consécutives
     # Après un gain          : reset à sequence[0]
     # Après épuisement de la séquence (7 pertes) :
     #   → pause puis reset

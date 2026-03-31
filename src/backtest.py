@@ -123,9 +123,18 @@ def get_enabled_mms(cfg: dict) -> list[str]:
 
 
 def get_mm_cfg(cfg: dict, mm_name: str) -> dict:
-    """Retourne le bloc de config d'un MM spécifique."""
-    yaml_key = MM_KEY_MAP.get(mm_name, "")
-    return cfg.get("strategies", {}).get(yaml_key, {})
+    """
+    Retourne le bloc de config d'un MM spécifique.
+    Injecte min_bet et min_capital depuis general si non définis au niveau MM.
+    """
+    yaml_key  = MM_KEY_MAP.get(mm_name, "")
+    mm_block  = dict(cfg.get("strategies", {}).get(yaml_key, {}))
+    general   = cfg.get("general", {})
+    # Héritage des valeurs globales si non surchargées au niveau MM
+    for key in ("min_bet", "min_capital"):
+        if key not in mm_block and key in general:
+            mm_block[key] = general[key]
+    return mm_block
 
 # ============================================================
 # 1. CHARGEMENT DES DONNÉES
@@ -399,7 +408,8 @@ def apply_money_management(
             ))
             break
 
-        bet            = max(bet, 0.0)
+        min_bet        = float(mm_cfg.get("min_bet", 1.0))
+        bet            = max(bet, min_bet)
         capital_before = capital
 
         # ── Résultat ───────────────────────────────────────────
@@ -493,10 +503,12 @@ def _apply_mm4_mm5(
     bet        = base_stake
     loss_count = 0  # pour MM5
 
+    min_bet = float(mm_cfg.get("min_bet", 1.0))
+
     for idx, row in enumerate(trades.itertuples(index=False)):
         result       = row.result
         capital_before = capital
-        bet_used     = bet
+        bet_used     = max(bet, min_bet)
 
         min_capital = float(mm_cfg.get("min_capital", 1.0))
         if capital < min_capital:
@@ -1293,10 +1305,13 @@ def main():
     strategy = get_strategy(args.strategy)
     print(f"[INFO] Stratégie        : {strategy.name}")
 
-    # Output dir : CLI > YAML > défaut, sous-dossier par stratégie
+    # Symbole extrait du nom du fichier (ex: BTCUSDT_5m_... → BTCUSDT)
+    _symbol = Path(args.input).stem.split("_")[0].upper()
+
+    # Output dir : CLI > YAML > défaut, sous-dossier par symbole puis stratégie
     _base_output = (args.output_dir
                     or cfg.get("general", {}).get("output_dir", "output"))
-    output_dir_str = str(Path(_base_output) / strategy.name)
+    output_dir_str = str(Path(_base_output) / _symbol / strategy.name)
 
     # ── Indicateurs (délégués à la stratégie) ──────────────
     df = strategy.prepare(df)
