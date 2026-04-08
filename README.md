@@ -113,7 +113,7 @@ Lance le backtest complet sur un fichier CSV. Teste toutes les combinaisons de v
 | `--output-dir` | `output/` | Dossier de sortie |
 | `--split` | — | Fraction train ex: `0.7` → teste sur les 30% les plus récents |
 | `--time-filter` | — | Force la Version B uniquement (filtre horaire) |
-| `--inverse` | — | Inverse les signaux : UP → DOWN et DOWN → UP |
+| `--inverse` | — | Inverse les signaux : UP → DOWN et DOWN → UP, et écrit les résultats dans un dossier `<strategie>_inverse` |
 
 #### Ajuster les seuils du signal
 
@@ -336,7 +336,7 @@ general:
 | MM1 | `MM1_flat_fixed` | `base_stake` |
 | MM2 | `MM2_fixed_1pct` | `fraction_pct` |
 | MM3 | `MM3_fixed_5pct` | `fraction_pct` |
-| MM4 | `MM4_martingale_classic` | `base_stake`, `loss_multiplier` |
+| MM4 | `MM4_martingale_classic` | `base_stake`, `use_fraction_pct`, `fraction_pct`, `loss_multiplier` |
 | MM5 | `MM5_martingale_linear` | `base_stake`, `increment` |
 | MM6 | `MM6_martingale_limited` | `sequence`, `pause_trades` |
 | MM7 | `MM7_anti_martingale` | `base_fraction_pct`, `max_fraction_pct`, `win_multipliers` |

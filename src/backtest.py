@@ -9,6 +9,7 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
 import warnings
 from pathlib import Path
@@ -489,9 +490,16 @@ def _apply_mm4_mm5(
     if mm_cfg is None:
         mm_cfg = {}
 
-    base_stake      = float(mm_cfg.get("base_stake", 1.0))
-    increment       = float(mm_cfg.get("increment",  1.0))   # pour MM5 seulement
-    loss_multiplier = float(mm_cfg.get("loss_multiplier", 2.0))  # pour MM4 seulement
+    base_stake       = float(mm_cfg.get("base_stake", 1.0))
+    increment        = float(mm_cfg.get("increment",  1.0))   # pour MM5 seulement
+    loss_multiplier  = float(mm_cfg.get("loss_multiplier", 2.0))  # pour MM4 seulement
+    use_fraction_pct = bool(mm_cfg.get("use_fraction_pct", False))  # pour MM4 seulement
+    fraction_pct     = float(mm_cfg.get("fraction_pct", 1.0))  # pour MM4 seulement
+
+    def _mm4_base_bet(current_capital: float) -> float:
+        if mm_name == "MM4" and use_fraction_pct:
+            return current_capital * (fraction_pct / 100)
+        return base_stake
 
     results    = []
     capital    = initial_capital
@@ -501,7 +509,7 @@ def _apply_mm4_mm5(
     loss_streak = 0
     ruine       = False
     ruine_reason = ""
-    bet        = base_stake
+    bet        = _mm4_base_bet(initial_capital)
     loss_count = 0  # pour MM5
 
     min_bet = float(mm_cfg.get("min_bet", 1.0))
@@ -531,7 +539,7 @@ def _apply_mm4_mm5(
             capital     += pnl
             win_streak  += 1
             loss_streak  = 0
-            bet          = base_stake
+            bet          = _mm4_base_bet(capital)
             loss_count   = 0
         else:
             pnl          = bet_used * payout_loss
@@ -898,6 +906,7 @@ def export_reports(
     time_filter_hours: set,
     strategy_name: str = "",
     strategy_description: str = "",
+    market_label: str = "",
 ):
     """Génère tous les fichiers de sortie."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1010,16 +1019,17 @@ def export_reports(
 
     # 6. Rapport Markdown
     md_path = output_dir / "rapport.md"
-    _write_markdown_report(md_path, all_results, summary_df, strategy_name, strategy_description)
+    _write_markdown_report(md_path, all_results, summary_df, strategy_name, strategy_description, market_label)
     print(f"[EXPORT] {md_path}")
 
 
 def _write_markdown_report(path: Path, all_results: list, summary_df: pd.DataFrame,
-                           strategy_name: str = "", strategy_description: str = ""):
+                           strategy_name: str = "", strategy_description: str = "",
+                           market_label: str = ""):
     """Génère le rapport Markdown."""
     lines = []
-
-    lines.append("# Rapport de Backtest — BTCUSDT M5\n")
+    report_market_label = market_label or "Backtest"
+    lines.append(f"# Rapport de Backtest - {report_market_label}\n")
     lines.append(f"*Généré le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n")
 
     lines.append("## Résumé de la stratégie\n")
@@ -1141,7 +1151,7 @@ def _write_markdown_report(path: Path, all_results: list, summary_df: pd.DataFra
     lines.append("")
 
     lines.append("## Conclusion\n")
-    lines.append("Ce rapport présente les résultats du backtest sur BTCUSDT M5. "
+    lines.append(f"Ce rapport presente les resultats du backtest sur {report_market_label}. "
                  "Les performances passées ne garantissent pas les performances futures. "
                  "Choisissez votre money management en fonction de votre tolérance au risque : "
                  "les martingales offrent une croissance agressive mais comportent un risque de ruine élevé ; "
@@ -1156,6 +1166,38 @@ def _write_markdown_report(path: Path, all_results: list, summary_df: pd.DataFra
 # ============================================================
 # 7. AFFICHAGE CONSOLE
 # ============================================================
+
+def infer_market_context(input_path: str, df: pd.DataFrame | None = None) -> tuple[str, str]:
+    """Infere le symbole et le timeframe a partir du nom de fichier, avec fallback sur les timestamps."""
+    stem = Path(input_path).stem
+    parts = stem.split("_")
+
+    symbol = parts[0].upper() if parts else stem.upper()
+    timeframe = ""
+
+    if len(parts) > 1:
+        candidate = parts[1].lower()
+        match = re.fullmatch(r"(\d+)([mhdw])", candidate)
+        if match:
+            value, unit = match.groups()
+            unit_map = {"m": "M", "h": "H", "d": "D", "w": "W"}
+            timeframe = f"{value}{unit_map[unit]}"
+
+    if not timeframe and df is not None and len(df) >= 2 and "dt_utc" in df.columns:
+        delta = df["dt_utc"].sort_values().diff().dropna()
+        if not delta.empty:
+            seconds = int(delta.mode().iloc[0].total_seconds())
+            if seconds % 604800 == 0:
+                timeframe = f"{seconds // 604800}W"
+            elif seconds % 86400 == 0:
+                timeframe = f"{seconds // 86400}D"
+            elif seconds % 3600 == 0:
+                timeframe = f"{seconds // 3600}H"
+            elif seconds % 60 == 0:
+                timeframe = f"{seconds // 60}M"
+
+    return symbol, timeframe
+
 
 def print_summary(
     strategy_version: str,
@@ -1305,14 +1347,15 @@ def main():
     # ── Stratégie ──────────────────────────────────────────
     strategy = get_strategy(args.strategy)
     print(f"[INFO] Stratégie        : {strategy.name}")
-
-    # Symbole extrait du nom du fichier (ex: BTCUSDT_5m_... → BTCUSDT)
-    _symbol = Path(args.input).stem.split("_")[0].upper()
+    # Contexte de marche extrait du nom du fichier (ex: BTCUSDT_5m_... -> BTCUSDT / 5M)
+    _symbol, _timeframe = infer_market_context(args.input, df)
+    _market_label = f"{_symbol} {_timeframe}".strip()
 
     # Output dir : CLI > YAML > défaut, sous-dossier par symbole puis stratégie
+    _strategy_output_name = f"{strategy.name}_inverse" if args.inverse else strategy.name
     _base_output = (args.output_dir
                     or cfg.get("general", {}).get("output_dir", "output"))
-    output_dir_str = str(Path(_base_output) / _symbol / strategy.name)
+    output_dir_str = str(Path(_base_output) / _symbol / _strategy_output_name)
 
     # ── Indicateurs (délégués à la stratégie) ──────────────
     df = strategy.prepare(df)
@@ -1446,9 +1489,10 @@ def main():
     if all_results:
         export_reports(Path(output_dir_str), trades, all_results, time_filter_hours,
                        strategy_name=strategy.name,
-                       strategy_description=strategy.description)
+                       strategy_description=strategy.description,
+                       market_label=_market_label)
     else:
-        print("[WARN] Aucun résultat à exporter.")
+        print("[WARN] Aucun resultat a exporter.")
 
 
 if __name__ == "__main__":
