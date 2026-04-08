@@ -126,7 +126,8 @@ strategies:
   MM4_martingale_classic:
     enabled: true
     base_stake: 1.0 # mise initiale et mise après un gain
-    # Après chaque perte : mise × 2
+    loss_multiplier: 1.3 # multiplicateur appliqué après chaque perte
+    # Après chaque perte : mise × loss_multiplier
     # Après un gain     : reset à base_stake
     # Si capital insuffisant → ruine
 

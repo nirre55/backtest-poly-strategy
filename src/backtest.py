@@ -489,8 +489,9 @@ def _apply_mm4_mm5(
     if mm_cfg is None:
         mm_cfg = {}
 
-    base_stake = float(mm_cfg.get("base_stake", 1.0))
-    increment  = float(mm_cfg.get("increment",  1.0))   # pour MM5 seulement
+    base_stake      = float(mm_cfg.get("base_stake", 1.0))
+    increment       = float(mm_cfg.get("increment",  1.0))   # pour MM5 seulement
+    loss_multiplier = float(mm_cfg.get("loss_multiplier", 2.0))  # pour MM4 seulement
 
     results    = []
     capital    = initial_capital
@@ -538,7 +539,7 @@ def _apply_mm4_mm5(
             loss_streak += 1
             win_streak   = 0
             if mm_name == "MM4":
-                bet = bet_used * 2
+                bet = bet_used * loss_multiplier
             else:  # MM5
                 loss_count += 1
                 bet = base_stake + loss_count * increment

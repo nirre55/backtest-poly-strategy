@@ -336,7 +336,7 @@ general:
 | MM1 | `MM1_flat_fixed` | `base_stake` |
 | MM2 | `MM2_fixed_1pct` | `fraction_pct` |
 | MM3 | `MM3_fixed_5pct` | `fraction_pct` |
-| MM4 | `MM4_martingale_classic` | `base_stake` |
+| MM4 | `MM4_martingale_classic` | `base_stake`, `loss_multiplier` |
 | MM5 | `MM5_martingale_linear` | `base_stake`, `increment` |
 | MM6 | `MM6_martingale_limited` | `sequence`, `pause_trades` |
 | MM7 | `MM7_anti_martingale` | `base_fraction_pct`, `max_fraction_pct`, `win_multipliers` |
