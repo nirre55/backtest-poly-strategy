@@ -92,11 +92,34 @@ def _macd_hist_pct(close: np.ndarray) -> np.ndarray:
         return np.where(close != 0, hist / close, np.nan)
 
 
+def _heikin_ashi(open_: np.ndarray, high: np.ndarray, low: np.ndarray,
+                 close: np.ndarray):
+    """Calcule les bougies Heikin-Ashi (ha_open, ha_close, ha_high, ha_low)."""
+    n = len(close)
+    ha_close = (open_ + high + low + close) / 4.0
+    ha_open  = np.empty(n, dtype=float)
+    ha_open[0] = (open_[0] + close[0]) / 2.0
+    for i in range(1, n):
+        ha_open[i] = (ha_open[i - 1] + ha_close[i - 1]) / 2.0
+    ha_high = np.maximum(high, np.maximum(ha_open, ha_close))
+    ha_low  = np.minimum(low,  np.minimum(ha_open, ha_close))
+    return ha_open, ha_close, ha_high, ha_low
+
+
+def _streak_count(is_event: np.ndarray) -> np.ndarray:
+    """Compte les séries consécutives de True (reset à 0 dès que False)."""
+    result = np.zeros(len(is_event), dtype=float)
+    for i in range(len(is_event)):
+        if is_event[i]:
+            result[i] = result[i - 1] + 1 if i > 0 else 1
+    return result
+
+
 # ================================================================== #
 # Jeux de règles                                                       #
 # ================================================================== #
 # Format : (vote, [(feature, op, valeur), ...])
-# op : "le" = <=,  "ge" = >=,  "eq" = ==
+# op : "le" = <=,  "ge" = >=,  "eq" = ==,  "in" = np.isin
 
 _RULE_SETS: dict[str, list] = {}
 
@@ -577,6 +600,472 @@ _RULE_SETS["eth_5m_rules_25_min_votes_1"] = [
 ]
 
 
+# ------------------------------------------------------------------ #
+# btc_5m_rules_23_min_votes_1                                         #
+# Source : btcusdt_5m_best_implementation_details.md                  #
+# ------------------------------------------------------------------ #
+_RULE_SETS["btc_5m_rules_23_min_votes_1"] = [
+    # 1
+    ("RED",   [("stoch_k12",      "ge", 98.87542775),
+               ("ret12",          "ge", 0.02486548978),
+               ("lower_wick",     "le", 0.001638796436)]),
+    # 2
+    ("GREEN", [("close_z48",      "le", -2.447691672),
+               ("atr72_pct",      "le", 0.0006406963614),
+               ("body_sum12",     "le", -0.004124824725)]),
+    # 3
+    ("GREEN", [("donch_low144",   "le", 0.0006404171868),
+               ("ha_body",        "le", -0.007640254912),
+               ("body_abs_pct",   "ge", 0.007312429007)]),
+    # 4
+    ("GREEN", [("cci12",          "le", -239.1833565),
+               ("atr72_pct",      "le", 0.0006406963614),
+               ("rsi8",           "ge", 16.98438998)]),
+    # 5
+    ("GREEN", [("donch_low144",   "le", 0.001091384106),
+               ("body_sum6",      "le", -0.01817603669),
+               ("volume_z96",     "ge", 2.919388313)]),
+    # 6
+    ("GREEN", [("stoch_k24",      "le", 2.898892702),
+               ("macd_hist_pct",  "le", -0.002344176743),
+               ("range_atr14",    "ge", 1.403339542)]),
+    # 7
+    ("GREEN", [("bb_pctb",        "le", -0.2340438348),
+               ("hour",           "eq", 13),
+               ("dist_sma24",     "ge", -0.007134313431)]),
+    # 8
+    ("GREEN", [("close_z24",      "le", -2.487374544),
+               ("atr72_pct",      "le", 0.0004654080978),
+               ("cci24",          "ge", -192.0944316)]),
+    # 9
+    ("GREEN", [("donch_low72",    "le", 0.0008266367569),
+               ("body_abs_pct",   "ge", 0.007312429007),
+               ("mfi8",           "le", 14.51065799)]),
+    # 10
+    ("RED",   [("macd_hist_pct",  "ge", 0.00186594868),
+               ("stoch_k12",      "ge", 97.66150155),
+               ("green_streak",   "ge", 4)]),
+    # 11
+    ("RED",   [("stoch_k24",      "ge", 98.04361321),
+               ("body_sum12",     "ge", 0.02432418065),
+               ("green_streak",   "ge", 3)]),
+    # 12
+    ("GREEN", [("cci12",          "le", -239.1833565),
+               ("close_z24",      "ge", -2.058232069),
+               ("lower_wick",     "le", 0.001092316795)]),
+    # 13
+    ("GREEN", [("stoch_k24",      "le", 2.898892702),
+               ("donch_high12",   "le", -0.02994954907),
+               ("mfi8",           "le", 14.51065799)]),
+    # 14
+    ("RED",   [("macd_hist_pct",  "ge", 0.00186594868),
+               ("stoch_k12",      "ge", 95.36034773),
+               ("rsi8",           "ge", 86.81303658)]),
+    # 15
+    ("GREEN", [("cci12",          "le", -209.9116877),
+               ("atr72_pct",      "le", 0.0007461972567),
+               ("atr14_pct",      "ge", 0.0006619825044)]),
+    # 16
+    ("GREEN", [("body",           "le", 0),
+               ("rsi7",           "le", 25),
+               ("lower_wick_body","ge", 4),
+               ("volume_ratio20", "ge", 2),
+               ("weekday",        "eq", 2)]),
+    # 17
+    ("RED",   [("green_streak",   "ge", 5),
+               ("rsi7",           "ge", 75),
+               ("range_atr14",    "ge", 1.5),
+               ("body_ratio",     "ge", 0.75),
+               ("weekday",        "eq", 3)]),
+    # 18
+    ("RED",   [("green_streak",   "ge", 4),
+               ("rsi7",           "ge", 75),
+               ("range_atr14",    "ge", 1),
+               ("body_ratio",     "ge", 0.75),
+               ("hour",           "eq", 1)]),
+    # 19
+    ("RED",   [("green_streak",   "ge", 4),
+               ("rsi7",           "ge", 75),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.75),
+               ("hour",           "eq", 11)]),
+    # 20
+    ("GREEN", [("red_streak",     "ge", 3),
+               ("rsi7",           "le", 30),
+               ("range_atr14",    "ge", 1.5),
+               ("body_ratio",     "ge", 0.75),
+               ("hour",           "eq", 21)]),
+    # 21
+    ("RED",   [("green_streak",   "ge", 6),
+               ("rsi7",           "ge", 70),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.75),
+               ("weekday",        "eq", 5)]),
+    # 22
+    ("GREEN", [("red_streak",     "ge", 5),
+               ("rsi7",           "le", 30),
+               ("range_atr14",    "ge", 1.5),
+               ("body_ratio",     "ge", 0.75),
+               ("hour",           "in", [21, 22, 23])]),
+    # 23
+    ("GREEN", [("body",           "le", 0),
+               ("rsi7",           "le", 30),
+               ("lower_wick_body","ge", 1.5),
+               ("volume_ratio20", "ge", 1.5),
+               ("hour",           "eq", 22)]),
+]
+
+# ------------------------------------------------------------------ #
+# btc_15m_rules_18_min_votes_1                                        #
+# Source : btcusdt_15m_micro_deduped_implementation_details.md        #
+# ------------------------------------------------------------------ #
+_RULE_SETS["btc_15m_rules_18_min_votes_1"] = [
+    # 1
+    ("GREEN", [("close_z24",      "le", -2.346311048),
+               ("lower_wick",     "le", 2.645309807e-05),
+               ("body_sum12",     "ge", -0.007253030737)]),
+    # 2
+    ("GREEN", [("stoch_k12",      "le", 0.5066458518),
+               ("weekday",        "eq", 5),
+               ("lower_wick",     "ge", 9.290936623e-08)]),
+    # 3
+    ("GREEN", [("bb_pctb",        "le", -0.01125914436),
+               ("body_ratio",     "ge", 0.9656401664),
+               ("range_atr14",    "le", 1.586225659)]),
+    # 4
+    ("GREEN", [("cci12",          "le", -168.9532813),
+               ("lower_wick_body","le", 0.01349188119),
+               ("dist_sma24",     "ge", -0.005575910157)]),
+    # 5
+    ("GREEN", [("close_z24",      "le", -2.547097817),
+               ("atr14_pct",      "le", 0.001795740443),
+               ("weekday",        "eq", 5)]),
+    # 6
+    ("GREEN", [("cci12",          "le", -145.0194062),
+               ("lower_wick_body","le", 0.01349188119),
+               ("rsi8",           "ge", 29.60116771)]),
+    # 7
+    ("GREEN", [("cci12",          "le", -145.0194062),
+               ("lower_wick_body","le", 0.01349188119),
+               ("upper_wick",     "le", 8.848352749e-05)]),
+    # 8
+    ("GREEN", [("stoch_k12",      "le", 3.592157413),
+               ("weekday",        "eq", 5),
+               ("cci12",          "le", -145.0194062)]),
+    # 9
+    ("GREEN", [("stoch_k12",      "le", 1.679463493),
+               ("body_abs_pct",   "ge", 0.008140445126),
+               ("macd_pct",       "le", -0.00345019142)]),
+    # 10
+    ("GREEN", [("close_z24",      "le", -2.346311048),
+               ("body_ratio",     "ge", 0.9656401664),
+               ("ret24",          "ge", -0.01042349892)]),
+    # 11
+    ("GREEN", [("bb_pctb",        "le", -0.01125914436),
+               ("close_position", "le", 0.002359360549),
+               ("rsi7",           "ge", 28.1055143)]),
+    # 12
+    ("GREEN", [("bb_pctb",        "le", -0.01125914436),
+               ("body_ratio",     "ge", 0.9656401664),
+               ("upper_wick",     "le", 8.429477069e-08)]),
+    # 13
+    ("GREEN", [("stoch_k24",      "le", 2.359680944),
+               ("atr14_pct",      "le", 0.001795740443),
+               ("bb_pctb",        "le", -0.07487622772)]),
+    # 14
+    ("GREEN", [("cci12",          "le", -145.0194062),
+               ("lower_wick",     "le", 2.645309807e-05),
+               ("lower_wick_body","ge", 5.001062838e-05)]),
+    # 15
+    ("GREEN", [("stoch_k12",      "le", 3.592157413),
+               ("weekday",        "eq", 5),
+               ("mfi8",           "le", 18.94457115)]),
+    # 16
+    ("GREEN", [("stoch_k12",      "le", 1.679463493),
+               ("cci12",          "le", -145.0194062),
+               ("atr14_pct",      "le", 0.001522731461)]),
+    # 17
+    ("RED",   [("bb_pctb",        "ge", 1.202478662),
+               ("volume_ratio20", "le", 1.758262671),
+               ("volume_z96",     "le", 0.7249823529)]),
+    # 18
+    ("GREEN", [("bb_pctb",        "le", 0.04489019383),
+               ("body_ratio",     "ge", 0.9987638412),
+               ("cci24",          "ge", -201.1674785)]),
+]
+
+# ------------------------------------------------------------------ #
+# btc_h1_rules_15_min_votes_1                                         #
+# Source : btcusdt_h1_best_implementation_details.md                  #
+# ------------------------------------------------------------------ #
+_RULE_SETS["btc_h1_rules_15_min_votes_1"] = [
+    # 1
+    ("GREEN", [("stoch_k12",      "le", 13.40911567),
+               ("hour",           "eq", 19),
+               ("body_abs_pct",   "le", 0.007181889216)]),
+    # 2
+    ("GREEN", [("stoch_k12",      "le", 13.40911567),
+               ("volume_z96",     "le", -0.8641092984),
+               ("lower_wick_body","ge", 0.1106917761)]),
+    # 3
+    ("GREEN", [("stoch_k24",      "le", 7.662631226),
+               ("donch_high12",   "le", -0.04360964035),
+               ("atr14_pct",      "le", 0.01278625059)]),
+    # 4
+    ("GREEN", [("stoch_k72",      "le", 3.661654758),
+               ("rsi7",           "le", 19.79139536),
+               ("rsi21",          "ge", 26.77185052)]),
+    # 5
+    ("GREEN", [("rsi14",          "le", 27.69290095),
+               ("stoch_k24",      "le", 3.478803314),
+               ("red_streak",     "le", 3)]),
+    # 6
+    ("GREEN", [("macd_hist_pct",  "le", -0.002650404386),
+               ("stoch_k12",      "le", 5.152344313),
+               ("stoch_k24",      "le", 3.478803314)]),
+    # 7
+    ("GREEN", [("stoch_k72",      "le", 3.661654758),
+               ("mfi8",           "le", 15.33077261),
+               ("ret24",          "ge", -0.05828397287)]),
+    # 8
+    ("GREEN", [("body",           "le", 0),
+               ("rsi7",           "le", 35),
+               ("lower_wick_body","ge", 1.25),
+               ("volume_ratio20", "ge", 1),
+               ("hour",           "in", [19, 20, 21, 22, 23])]),
+    # 9
+    ("GREEN", [("red_streak",     "ge", 2),
+               ("rsi7",           "le", 35),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.6),
+               ("hour",           "in", [19, 20, 21, 22, 23])]),
+    # 10
+    ("GREEN", [("red_streak",     "ge", 3),
+               ("rsi7",           "le", 25),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.45),
+               ("weekday",        "eq", 3)]),
+    # 11
+    ("RED",   [("green_streak",   "ge", 2),
+               ("rsi7",           "ge", 60),
+               ("range_atr14",    "ge", 1.2),
+               ("body_ratio",     "ge", 0.6),
+               ("weekday",        "eq", 6)]),
+    # 12
+    ("GREEN", [("red_streak",     "ge", 2),
+               ("rsi7",           "le", 25),
+               ("range_atr14",    "ge", 1.2),
+               ("body_ratio",     "ge", 0.45),
+               ("weekday",        "eq", 6)]),
+    # 13
+    ("RED",   [("green_streak",   "ge", 2),
+               ("rsi7",           "ge", 65),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.6),
+               ("weekday",        "eq", 3)]),
+    # 14
+    ("GREEN", [("red_streak",     "ge", 2),
+               ("rsi7",           "le", 35),
+               ("range_atr14",    "ge", 1.5),
+               ("body_ratio",     "ge", 0.6),
+               ("hour",           "in", [0, 1, 2, 3, 4, 5, 6, 7])]),
+    # 15
+    ("RED",   [("green_streak",   "ge", 2),
+               ("rsi7",           "ge", 70),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.75),
+               ("hour",           "in", [7, 8, 9, 10, 11, 12])]),
+]
+
+# ------------------------------------------------------------------ #
+# eth_15m_rules_24_min_votes_1                                        #
+# Source : ethusdt_15m_best_implementation_details.md                 #
+# ------------------------------------------------------------------ #
+_RULE_SETS["eth_15m_rules_24_min_votes_1"] = [
+    # 1
+    ("GREEN", [("donch_low72",    "le", 0.002929379759),
+               ("upper_wick",     "ge", 0.005230358453),
+               ("range_atr14",    "ge", 1.386145597)]),
+    # 2
+    ("GREEN", [("rsi7",           "le", 18.00845307),
+               ("ret24",          "ge", -0.01422341075),
+               ("volume_z96",     "le", 0.678389517)]),
+    # 3
+    ("GREEN", [("rsi7",           "le", 20.53343598),
+               ("lower_wick",     "le", 0.0001510480269),
+               ("close_z48",      "ge", -2.194643073)]),
+    # 4
+    ("GREEN", [("rsi7",           "le", 18.00845307),
+               ("donch_high12",   "ge", -0.01631766978),
+               ("body_ratio",     "ge", 0.761334494)]),
+    # 5
+    ("GREEN", [("stoch_k72",      "le", 6.338975885),
+               ("atr14_pct",      "le", 0.002139583407),
+               ("donch_low144",   "le", 0.008900804981)]),
+    # 6
+    ("GREEN", [("stoch_k12",      "le", 2.190740935),
+               ("ha_body_ratio",  "ge", 0.7392377051),
+               ("donch_low144",   "ge", 0.01135054861)]),
+    # 7
+    ("GREEN", [("rsi8",           "le", 22.26951785),
+               ("body_sum12",     "ge", -0.009912424083),
+               ("body_ratio",     "ge", 0.761334494)]),
+    # 8
+    ("GREEN", [("rsi8",           "le", 22.26951785),
+               ("atr72_pct",      "le", 0.002457878466),
+               ("stoch_k12",      "le", 12.12790869)]),
+    # 9
+    ("GREEN", [("bb_pctb",        "le", -0.1302923821),
+               ("atr14_pct",      "le", 0.002139583407),
+               ("rsi14",          "le", 34.24698515)]),
+    # 10
+    ("GREEN", [("rsi8",           "le", 22.26951785),
+               ("lower_wick",     "le", 0.0001510480269),
+               ("cci72",          "ge", -111.0492288)]),
+    # 11
+    ("GREEN", [("rsi7",           "le", 20.53343598),
+               ("atr14_pct",      "le", 0.002139583407),
+               ("stoch_k24",      "le", 16.25327588)]),
+    # 12
+    ("GREEN", [("donch_low72",    "le", 0.0015569182),
+               ("rsi21",          "le", 30.19044475),
+               ("macd_hist_pct",  "ge", -0.00105807534)]),
+    # 13
+    ("GREEN", [("bb_pctb",        "le", -0.1302923821),
+               ("atr14_pct",      "le", 0.002139583407),
+               ("weekday",        "eq", 6)]),
+    # 14
+    ("GREEN", [("rsi7",           "le", 18.00845307),
+               ("donch_high12",   "ge", -0.01631766978),
+               ("donch_low72",    "le", 0.0015569182)]),
+    # 15
+    ("GREEN", [("rsi7",           "le", 18.00845307),
+               ("stoch_k12",      "le", 2.190740935),
+               ("donch_high12",   "ge", -0.02357829884)]),
+    # 16
+    ("GREEN", [("stoch_k72",      "le", 8.202131158),
+               ("hour",           "eq", 12),
+               ("rsi21",          "le", 32.08032065)]),
+    # 17
+    ("GREEN", [("rsi8",           "le", 22.26951785),
+               ("atr14_pct",      "le", 0.002521277008),
+               ("cci12",          "le", -191.4788279)]),
+    # 18
+    ("GREEN", [("close_z24",      "le", -2.581548268),
+               ("atr14_pct",      "le", 0.002521277008),
+               ("donch_low144",   "le", 0.006105932389)]),
+    # 19
+    ("GREEN", [("rsi7",           "le", 18.00845307),
+               ("dist_sma24",     "ge", -0.01345743525),
+               ("close_position", "le", 0.1384615385)]),
+    # 20
+    ("GREEN", [("red_streak",     "ge", 5),
+               ("rsi7",           "le", 40),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.75),
+               ("hour",           "in", [0, 1, 2, 3, 4, 5, 6, 7])]),
+    # 21
+    ("GREEN", [("red_streak",     "ge", 2),
+               ("rsi7",           "le", 30),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.75),
+               ("hour",           "eq", 6)]),
+    # 22
+    ("GREEN", [("red_streak",     "ge", 4),
+               ("rsi7",           "le", 30),
+               ("range_atr14",    "ge", 1.5),
+               ("body_ratio",     "ge", 0.6),
+               ("weekday",        "eq", 5)]),
+    # 23
+    ("GREEN", [("red_streak",     "ge", 3),
+               ("rsi7",           "le", 30),
+               ("range_atr14",    "ge", 0.8),
+               ("body_ratio",     "ge", 0.75),
+               ("weekday",        "eq", 5)]),
+    # 24
+    ("GREEN", [("body",           "le", 0),
+               ("rsi7",           "le", 30),
+               ("lower_wick_body","ge", 2),
+               ("volume_ratio20", "ge", 1),
+               ("weekday",        "eq", 5)]),
+]
+
+# ------------------------------------------------------------------ #
+# eth_h1_rules_17_min_votes_1                                         #
+# Source : ethusdt_h1_micro_deduped_implementation_details.md         #
+# ------------------------------------------------------------------ #
+_RULE_SETS["eth_h1_rules_17_min_votes_1"] = [
+    # 1
+    ("GREEN", [("donch_low72",    "le", 0.005558113318),
+               ("macd_hist_pct",  "le", -0.002259446914),
+               ("bb_pctb",        "ge", 0.04033662233)]),
+    # 2
+    ("GREEN", [("donch_low72",    "le", 0.006837778067),
+               ("rsi7",           "le", 17.03206178),
+               ("ha_body",        "ge", -0.01017634652)]),
+    # 3
+    ("GREEN", [("mfi21",          "le", 20.65922058),
+               ("weekday",        "eq", 2),
+               ("rsi7",           "le", 33.60114385)]),
+    # 4
+    ("GREEN", [("donch_low144",   "le", 0.005548156292),
+               ("body_sum12",     "le", -0.03657074613),
+               ("mfi14",          "le", 21.44107346)]),
+    # 5
+    ("GREEN", [("mfi21",          "le", 20.65922058),
+               ("stoch_k72",      "le", 8.138635),
+               ("donch_high12",   "ge", -0.04766910986)]),
+    # 6
+    ("GREEN", [("rsi21",          "le", 29.1932855),
+               ("close_position", "le", 0.1724014402),
+               ("ha_close_position","ge", 0.3840913291)]),
+    # 7
+    ("GREEN", [("donch_low72",    "le", 0.006837778067),
+               ("mfi14",          "le", 16.05947179),
+               ("cci12",          "ge", -112.7701187)]),
+    # 8
+    ("GREEN", [("stoch_k24",      "le", 7.980198437),
+               ("mfi8",           "le", 18.38030246),
+               ("rsi8",           "le", 12.50217521)]),
+    # 9
+    ("GREEN", [("stoch_k24",      "le", 7.980198437),
+               ("macd_pct",       "le", -0.01229544773),
+               ("mfi14",          "le", 18.18947095)]),
+    # 10
+    ("GREEN", [("donch_low72",    "le", 0.005558113318),
+               ("macd_hist_pct",  "le", -0.003023911405),
+               ("close_z48",      "ge", -2.500795018)]),
+    # 11
+    ("GREEN", [("mfi14",          "le", 21.44107346),
+               ("close_position", "le", 0.1223925466),
+               ("lower_wick_body","ge", 0.06465758156)]),
+    # 12
+    ("GREEN", [("donch_low72",    "le", 0.003842653373),
+               ("rsi8",           "le", 24.91006406),
+               ("close_z24",      "ge", -2.099858976)]),
+    # 13
+    ("GREEN", [("donch_low72",    "le", 0.006837778067),
+               ("rsi8",           "le", 18.79011376),
+               ("close_z24",      "ge", -2.099858976)]),
+    # 14
+    ("GREEN", [("donch_low72",    "le", 0.006837778067),
+               ("rsi7",           "le", 23.29241515),
+               ("bb_pctb",        "ge", 0.08661248075)]),
+    # 15
+    ("GREEN", [("donch_low144",   "le", 0.005548156292),
+               ("rsi7",           "le", 17.03206178),
+               ("ha_body_ratio",  "le", 0.6571549533)]),
+    # 16
+    ("GREEN", [("donch_low72",    "le", 0.006837778067),
+               ("rsi7",           "le", 13.5929322),
+               ("close_z24",      "ge", -2.584346456)]),
+    # 17
+    ("GREEN", [("mfi21",          "le", 20.65922058),
+               ("stoch_k72",      "le", 8.138635),
+               ("donch_high72",   "le", -0.1118632156)]),
+]
+
+
 # ================================================================== #
 # Stratégie                                                            #
 # ================================================================== #
@@ -586,8 +1075,10 @@ class MicroEnsembleStrategy(BaseStrategy):
     name = "micro_ensemble"
     description = (
         "MICRO_ENSEMBLE : vote majoritaire de micro-règles booléennes. "
-        "Variantes : btc_5m_rules_90_min_votes_1 (65.04%/8971 trades), "
-        "eth_5m_rules_25_min_votes_1 (67.97%/2891 trades). "
+        "Variantes : btc_5m_rules_90_min_votes_1, btc_5m_rules_23_min_votes_1, "
+        "btc_15m_rules_18_min_votes_1, btc_h1_rules_15_min_votes_1, "
+        "eth_5m_rules_25_min_votes_1, eth_15m_rules_24_min_votes_1, "
+        "eth_h1_rules_17_min_votes_1. "
         "Paramètres : variant, min_votes."
     )
 
@@ -734,10 +1225,63 @@ class MicroEnsembleStrategy(BaseStrategy):
         df["macd_hist_pct"] = _macd_hist_pct(close)
 
         # ── Green / Red counts ────────────────────────────────────────
-        is_green = pd.Series((close > open_).astype(float))
-        is_red   = pd.Series((close < open_).astype(float))
-        df["green_count6"] = is_green.rolling(6).sum().to_numpy()
-        df["red_count6"]   = is_red.rolling(6).sum().to_numpy()
+        is_green_arr = (close > open_)
+        is_red_arr   = (close < open_)
+        is_green_s = pd.Series(is_green_arr.astype(float))
+        is_red_s   = pd.Series(is_red_arr.astype(float))
+        df["green_count6"] = is_green_s.rolling(6).sum().to_numpy()
+        df["red_count6"]   = is_red_s.rolling(6).sum().to_numpy()
+
+        # ── Streaks consécutifs ──────────────────────────────────────
+        df["green_streak"] = _streak_count(is_green_arr)
+        df["red_streak"]   = _streak_count(is_red_arr)
+
+        # ── Corps signé ──────────────────────────────────────────────
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["body"] = np.where(close > 0, (close - open_) / close, np.nan)
+
+        # ── Position du close dans la bougie ─────────────────────────
+        candle_range = high - low
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["close_position"] = np.where(
+                candle_range > 0, (close - low) / candle_range, np.nan
+            )
+
+        # ── ATR range ratio ───────────────────────────────────────────
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["range_atr14"] = np.where(atr14 > 0, (high - low) / atr14, np.nan)
+
+        # ── Volume ratio 20 ───────────────────────────────────────────
+        vs20 = pd.Series(volume).rolling(20).mean().to_numpy()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["volume_ratio20"] = np.where(vs20 > 0, volume / vs20, np.nan)
+
+        # ── MACD line % ───────────────────────────────────────────────
+        cs2 = pd.Series(close)
+        macd_line = (cs2.ewm(span=12, adjust=False).mean()
+                     - cs2.ewm(span=26, adjust=False).mean()).to_numpy()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["macd_pct"] = np.where(close != 0, macd_line / close, np.nan)
+
+        # ── Heikin-Ashi features ──────────────────────────────────────
+        ha_open_arr, ha_close_arr, ha_high_arr, ha_low_arr = _heikin_ashi(
+            open_, high, low, close
+        )
+        ha_range_arr = ha_high_arr - ha_low_arr
+        with np.errstate(divide="ignore", invalid="ignore"):
+            df["ha_body"]           = np.where(
+                close > 0, (ha_close_arr - ha_open_arr) / close, np.nan
+            )
+            df["ha_body_ratio"]     = np.where(
+                ha_range_arr > 0,
+                (ha_close_arr - ha_open_arr) / ha_range_arr,
+                np.nan,
+            )
+            df["ha_close_position"] = np.where(
+                ha_range_arr > 0,
+                (ha_close_arr - ha_low_arr) / ha_range_arr,
+                np.nan,
+            )
 
         return df
 
@@ -791,6 +1335,8 @@ class MicroEnsembleStrategy(BaseStrategy):
                     cond = arr <= val
                 elif op == "ge":
                     cond = arr >= val
+                elif op == "in":
+                    cond = np.isin(arr, val)
                 else:  # "eq"
                     cond = arr == val
                 mask &= cond & ~nan_mask

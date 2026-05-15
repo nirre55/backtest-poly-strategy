@@ -125,12 +125,17 @@ signal_strategies:
 
   # ----------------------------------------------------------
   # micro_ensemble — Vote majoritaire de micro-règles
-  # Variantes :
-  #   btc_5m_rules_90_min_votes_1 : 90 règles BTC/5m — 65.04% / 8971 | Test 68.74% / 643
-  #   eth_5m_rules_25_min_votes_1 : 25 règles ETH/5m — 67.97% / 2891 | Test 72.80% / 250
+  # Variantes disponibles :
+  #   btc_5m_rules_90_min_votes_1  : 90 règles BTC/5m
+  #   btc_5m_rules_23_min_votes_1  : 23 règles BTC/5m  (best combined)
+  #   btc_15m_rules_18_min_votes_1 : 18 règles BTC/15m (deduped)
+  #   btc_h1_rules_15_min_votes_1  : 15 règles BTC/H1  (best combined)
+  #   eth_5m_rules_25_min_votes_1  : 25 règles ETH/5m  (deduped)
+  #   eth_15m_rules_24_min_votes_1 : 24 règles ETH/15m (best combined)
+  #   eth_h1_rules_17_min_votes_1  : 17 règles ETH/H1  (deduped)
   # ----------------------------------------------------------
   micro_ensemble:
-    variant: "eth_5m_rules_25_min_votes_1" # btc_5m_rules_90_min_votes_1 | eth_5m_rules_25_min_votes_1
+    variant: "eth_5m_rules_25_min_votes_1"
     min_votes: 1 # votes totaux minimum (1 = signal dès qu'une règle est active)
 
 # ============================================================
