@@ -293,7 +293,29 @@ signal_strategies:
 
   momentum:
     threshold_pct: 0.2    # variation minimum en % pour déclencher un signal
+
+  heikin_ashi:
+    body_ratio_min: 0.3   # corps HA / range HA ≥ seuil (0 = pas de filtre)
+
+  donch_zscore:
+    donch_thr: 0.00035    # distance max close/plus-bas (et close/plus-haut)
+    body_sum_thr: 0.0045  # valeur absolue du body sum sur 6 bougies
+    z_thr: 2.1            # valeur absolue du z-score close sur 24 bougies
+    horizon: 1            # nb de bougies suivantes à miser dans la même direction
+
+  micro_ensemble:
+    variant: "btc_5m_rules_90_min_votes_1"  # jeu de règles actif (voir variantes ci-dessous)
+    min_votes: 1                             # votes totaux minimum pour générer un signal
 ```
+
+#### Variantes `micro_ensemble`
+
+| Variant | Asset | Règles | Backtest | Test |
+|---------|-------|--------|----------|------|
+| `btc_5m_rules_90_min_votes_1` | BTC/5m | 90 (60G+30R) | 65.04% / 8971 trades | 68.74% / 643 trades |
+| `eth_5m_rules_25_min_votes_1` | ETH/5m | 25 (19G+6R)  | 67.97% / 2891 trades | 72.80% / 250 trades |
+
+Pour changer de variante, modifier `variant:` dans le YAML ou ajouter de nouvelles variantes dans `src/strategies/micro_ensemble.py` sous `_RULE_SETS`.
 
 > **Priorité :** CLI > YAML > valeur par défaut du code.
 > Exemple : `--rsi-up 30` surcharge le `rsi_up: 35.0` du YAML.
@@ -304,6 +326,11 @@ signal_strategies:
 
 ```yaml
 general:
+  temporal_filters:
+    enabled: true                 # true = actif, false = ignore les exclusions
+    excluded_days: [sat, sun]     # jours exclus en UTC
+    excluded_hours: "00h-09h"     # heures exclues en UTC
+
   versions:
     A:
       enabled: true   # tous les signaux, sans filtre horaire
@@ -314,6 +341,8 @@ general:
 
 - **Version A** : tous les signaux pris, 24h/24
 - **Version B** : seulement les signaux dont l'heure (timezone Montréal) est dans la liste
+
+- **Filtres temporels globaux UTC** : `temporal_filters.enabled` active/desactive le filtre. `excluded_days` et `excluded_hours` retirent des signaux pour toutes les versions, en se basant sur `signal_time` UTC. `excluded_hours` accepte une plage comme `"00h-09h"` ou une liste comme `[0, 1, 2]`.
 
 ### Payouts
 

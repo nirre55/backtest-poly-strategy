@@ -17,6 +17,10 @@ from .wick_momentum import WickMomentumStrategy
 from .sniper import SniperStrategy
 from .momentum import MomentumStrategy
 from .alternating import AlternatingStrategy
+from .pattern import PatternStrategy
+from .heikin_ashi import HeikinAshiStrategy
+from .donch_zscore import DonchZscoreStrategy
+from .micro_ensemble import MicroEnsembleStrategy
 
 REGISTRY: dict[str, type[BaseStrategy]] = {
     "streak_rsi":           StreakRSIStrategy,
@@ -25,6 +29,10 @@ REGISTRY: dict[str, type[BaseStrategy]] = {
     "sniper":               SniperStrategy,
     "momentum":             MomentumStrategy,
     "alternating":          AlternatingStrategy,
+    "pattern":              PatternStrategy,
+    "heikin_ashi":          HeikinAshiStrategy,
+    "donch_zscore":         DonchZscoreStrategy,
+    "micro_ensemble":       MicroEnsembleStrategy,
 }
 
 

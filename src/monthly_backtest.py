@@ -23,6 +23,7 @@ from backtest import (
     run_mm_simulation, compute_global_stats, compute_streak_stats,
     compute_drawdown_stats, compute_time_to_targets, compute_time_stats,
     compute_period_stats, export_reports, invert_signals,
+    get_temporal_filters, apply_temporal_exclusions,
     MM_KEY_MAP, CAPITAL_TARGETS, MONTREAL_TZ,
 )
 from strategies import get_strategy, list_strategies
@@ -48,6 +49,8 @@ def run_month(
     cfg: dict,
     timezone: str,
     strategy_params: dict,
+    excluded_days: set[str] | None = None,
+    excluded_hours: set[int] | None = None,
     inverse: bool = False,
 ) -> list:
     """
@@ -56,6 +59,8 @@ def run_month(
     """
     df = strategy.prepare(df_month.copy())
     ref_date = pd.Timestamp.now(tz="UTC")
+    excluded_days = excluded_days or set()
+    excluded_hours = excluded_hours or set()
 
     signals_cache = {}
     for version in versions_to_run:
@@ -68,6 +73,7 @@ def run_month(
         )
         if inverse and not sig.empty:
             sig = invert_signals(sig)
+        sig = apply_temporal_exclusions(sig, excluded_days, excluded_hours)
         signals_cache[version] = sig
 
     all_results = []
@@ -261,6 +267,7 @@ def main():
     time_filter_hours = set(
         versions_cfg.get("B", {}).get("time_filter_hours", [4, 5, 6, 7, 8, 17])
     )
+    temporal_filters_enabled, excluded_days, excluded_hours = get_temporal_filters(cfg)
 
     strategy = get_strategy(args.strategy)
 
@@ -306,6 +313,14 @@ def main():
         # alternating
         "use_loss_streak_switch": _yaml_sparams.get("use_loss_streak_switch", True),
         "loss_streak_switch":     _yaml_sparams.get("loss_streak_switch", 2),
+        # donch_zscore
+        "donch_thr":              _yaml_sparams.get("donch_thr",    0.00035),
+        "body_sum_thr":           _yaml_sparams.get("body_sum_thr", 0.0045),
+        "z_thr":                  _yaml_sparams.get("z_thr",        2.1),
+        "horizon":                _yaml_sparams.get("horizon",      1),
+        # micro_ensemble
+        "min_votes":              _yaml_sparams.get("min_votes",    1),
+        "variant":                _yaml_sparams.get("variant",      "btc_5m_rules_90_min_votes_1"),
     }
 
     print(f"[INFO] Stratégie        : {strategy.name}")
@@ -313,6 +328,10 @@ def main():
     print(f"[INFO] Versions actives : {versions_to_run}")
     print(f"[INFO] Payouts actifs   : {payouts_to_run}")
     print(f"[INFO] MM actifs        : {[MM_KEY_MAP.get(m, m) for m in mms_to_run]}")
+    if excluded_days or excluded_hours:
+        print(f"[INFO] Filtres temp. UTC: {'actifs' if temporal_filters_enabled else 'inactifs'}")
+        print(f"[INFO] Jours exclus UTC : {sorted(excluded_days) or '-'}")
+        print(f"[INFO] Heures exclues UTC: {sorted(excluded_hours) or '-'}")
 
     # ── Chargement des données ──────────────────────────────
     df_raw = load_data(args.input)
@@ -344,6 +363,8 @@ def main():
             versions_to_run, time_filter_hours,
             payouts_cfg, payouts_to_run, mms_to_run,
             initial_capital, cfg, args.timezone, strategy_params,
+            excluded_days=excluded_days if temporal_filters_enabled else set(),
+            excluded_hours=excluded_hours if temporal_filters_enabled else set(),
             inverse=args.inverse,
         )
 

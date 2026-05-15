@@ -11,7 +11,14 @@
 general:
   starting_capital: 100.0
   output_dir: output
-  min_bet: 1.0          # mise minimum pour tous les MM (si % < 1$, on mise 1$)
+  min_bet: 1.0 # mise minimum pour tous les MM (si % < 1$, on mise 1$)
+
+  # Filtres temporels globaux UTC (appliques a toutes les versions)
+  temporal_filters:
+    enabled: false # true = actif, false = ignore excluded_days / excluded_hours
+    # Jours acceptes: mon,tue,wed,thu,fri,sat,sun (ou lundi, mardi...)
+    excluded_days: []
+    excluded_hours: "00h-09h"
 
   # Versions à tester
   versions:
@@ -25,7 +32,7 @@ general:
   payouts:
     A:
       enabled: true
-      win_payout: 0.90 # gain net par dollar misé si victoire
+      win_payout: 0.80 # gain net par dollar misé si victoire
       loss_payout: -1.00 # perte nette par dollar misé si défaite
     B:
       enabled: false
@@ -94,6 +101,38 @@ signal_strategies:
     use_loss_streak_switch: false # false = alternance pure sans jamais switcher
     loss_streak_switch: 2 # nb de pertes consécutives avant d'inverser la phase
 
+  # ----------------------------------------------------------
+  # pattern — Suit un motif configurable avec reset sur win
+  # ----------------------------------------------------------
+  pattern:
+    pattern: "RRVRVR" # R = parier DOWN, V = parier UP. Reset position 0 après chaque win
+
+  # ----------------------------------------------------------
+  # heikin_ashi — Suivi de tendance par bougies synthétiques
+  # ----------------------------------------------------------
+  heikin_ashi:
+    body_ratio_min: 0.5 # corps HA / range HA ≥ seuil (0 = pas de filtre)
+
+  # ----------------------------------------------------------
+  # donch_zscore — Contrarian Donchian + Body Sum + Z-Score
+  # Source: c4add18818 | Score: 66.35 | Test: 62.37% / 287 trades
+  # ----------------------------------------------------------
+  donch_zscore:
+    donch_thr: 0.00035 # distance max close/plus-bas (et close/plus-haut)
+    body_sum_thr: 0.0045 # valeur absolue du body sum sur 6 bougies
+    z_thr: 2.1 # valeur absolue du z-score close sur 24 bougies
+    horizon: 24 # nb de bougies suivantes à miser dans la même direction (1 = bougie i+1 seulement)
+
+  # ----------------------------------------------------------
+  # micro_ensemble — Vote majoritaire de micro-règles
+  # Variantes :
+  #   btc_5m_rules_90_min_votes_1 : 90 règles BTC/5m — 65.04% / 8971 | Test 68.74% / 643
+  #   eth_5m_rules_25_min_votes_1 : 25 règles ETH/5m — 67.97% / 2891 | Test 72.80% / 250
+  # ----------------------------------------------------------
+  micro_ensemble:
+    variant: "eth_5m_rules_25_min_votes_1" # btc_5m_rules_90_min_votes_1 | eth_5m_rules_25_min_votes_1
+    min_votes: 1 # votes totaux minimum (1 = signal dès qu'une règle est active)
+
 # ============================================================
 # Stratégies de money management
 # ============================================================
@@ -126,9 +165,13 @@ strategies:
   MM4_martingale_classic:
     enabled: true
     base_stake: 1.0 # mise initiale et mise après un gain
-    loss_multiplier: 1.3 # multiplicateur appliqué après chaque perte
+    use_fraction_pct: false # false = utilise base_stake, true = utilise fraction_pct
+    fraction_pct: 0.5 # % du capital utilisé si use_fraction_pct = true
+    loss_multiplier: 2 # multiplicateur appliqué après chaque perte
+    # Si use_fraction_pct = false : reset sur base_stake
+    # Si use_fraction_pct = true  : reset sur % du capital courant
     # Après chaque perte : mise × loss_multiplier
-    # Après un gain     : reset à base_stake
+    # Après un gain     : reset à la mise de base active
     # Si capital insuffisant → ruine
 
   # ----------------------------------------------------------

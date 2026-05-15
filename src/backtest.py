@@ -137,6 +137,133 @@ def get_mm_cfg(cfg: dict, mm_name: str) -> dict:
             mm_block[key] = general[key]
     return mm_block
 
+
+DAY_ALIASES = {
+    "mon": "monday", "monday": "monday", "lun": "monday", "lundi": "monday",
+    "tue": "tuesday", "tues": "tuesday", "tuesday": "tuesday", "mar": "tuesday", "mardi": "tuesday",
+    "wed": "wednesday", "wednesday": "wednesday", "mer": "wednesday", "mercredi": "wednesday",
+    "thu": "thursday", "thur": "thursday", "thurs": "thursday", "thursday": "thursday", "jeu": "thursday", "jeudi": "thursday",
+    "fri": "friday", "friday": "friday", "ven": "friday", "vendredi": "friday",
+    "sat": "saturday", "saturday": "saturday", "sam": "saturday", "samedi": "saturday",
+    "sun": "sunday", "sunday": "sunday", "dim": "sunday", "dimanche": "sunday",
+}
+
+
+def _as_config_items(raw) -> list:
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return list(raw)
+    return [item.strip() for item in str(raw).split(",") if item.strip()]
+
+
+def parse_excluded_days(raw) -> set[str]:
+    """Parse excluded_days: sat,sun / [sat, sun] / samedi,dimanche."""
+    days = set()
+    for item in _as_config_items(raw):
+        key = str(item).strip().lower()
+        if not key:
+            continue
+        if key not in DAY_ALIASES:
+            valid = ", ".join(sorted(DAY_ALIASES))
+            sys.exit(f"[ERREUR] Jour exclu invalide : {item}. Valeurs acceptees : {valid}")
+        days.add(DAY_ALIASES[key])
+    return days
+
+
+def parse_excluded_hours(raw) -> set[int]:
+    """Parse excluded_hours: 00h-09h / 0-9 / [0, 1, 2] / 22h-02h."""
+    hours = set()
+    for item in _as_config_items(raw):
+        text = str(item).strip().lower().replace(" ", "")
+        if not text:
+            continue
+
+        match = re.fullmatch(r"(\d{1,2})h?(?:-|to|a)(\d{1,2})h?", text)
+        if match:
+            start = int(match.group(1))
+            end = int(match.group(2))
+            if not (0 <= start <= 23 and 0 <= end <= 23):
+                sys.exit(f"[ERREUR] Plage horaire invalide : {item}. Utiliser 0-23.")
+            if start <= end:
+                hours.update(range(start, end + 1))
+            else:
+                hours.update(range(start, 24))
+                hours.update(range(0, end + 1))
+            continue
+
+        match = re.fullmatch(r"(\d{1,2})h?", text)
+        if match:
+            hour = int(match.group(1))
+            if not 0 <= hour <= 23:
+                sys.exit(f"[ERREUR] Heure exclue invalide : {item}. Utiliser 0-23.")
+            hours.add(hour)
+            continue
+
+        sys.exit(f"[ERREUR] Heure/plage exclue invalide : {item}. Exemple : 00h-09h ou 4.")
+    return hours
+
+
+def _bool_from_config(raw, default: bool = True) -> bool:
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on", "oui"}
+
+
+def get_temporal_filters(cfg: dict) -> tuple[bool, set[str], set[int]]:
+    general = cfg.get("general", {})
+    temporal = general.get("temporal_filters", {})
+    if temporal is None:
+        temporal = {}
+
+    enabled = _bool_from_config(
+        temporal.get("enabled", general.get("temporal_filters_enabled")),
+        default=True,
+    )
+    excluded_days = temporal.get(
+        "excluded_days",
+        general.get("excluded_days", general.get("EXCLUDED_DAYS", [])),
+    )
+    excluded_hours = temporal.get(
+        "excluded_hours",
+        general.get("excluded_hours", general.get("EXCLUDED_HOURS", [])),
+    )
+    return enabled, parse_excluded_days(excluded_days), parse_excluded_hours(excluded_hours)
+
+
+def apply_temporal_exclusions(
+    trades: pd.DataFrame,
+    excluded_days: set[str],
+    excluded_hours: set[int],
+) -> pd.DataFrame:
+    if trades.empty or (not excluded_days and not excluded_hours):
+        return trades
+
+    if "signal_time" not in trades.columns:
+        sys.exit("[ERREUR] Colonne signal_time manquante pour les filtres temporels UTC.")
+
+    signal_time_utc = pd.to_datetime(trades["signal_time"], utc=True, errors="coerce")
+    if signal_time_utc.isna().any():
+        sys.exit("[ERREUR] signal_time contient des timestamps invalides pour les filtres temporels UTC.")
+
+    mask = pd.Series(True, index=trades.index)
+
+    if excluded_days:
+        days = signal_time_utc.dt.day_name().str.lower()
+        mask &= ~days.isin(excluded_days)
+
+    if excluded_hours:
+        hours = signal_time_utc.dt.hour
+        mask &= ~hours.isin(excluded_hours)
+
+    filtered = trades.loc[mask].reset_index(drop=True)
+    removed = len(trades) - len(filtered)
+    if removed:
+        print(f"[INFO] Filtres temporels UTC : {removed} signal(aux) exclu(s).")
+    return filtered
+
 # ============================================================
 # 1. CHARGEMENT DES DONNÉES
 # ============================================================
@@ -578,6 +705,8 @@ def _trade_row(idx, row, capital_before, bet, result, pnl, capital_after,
     return {
         "trade_number":   idx + 1,
         "time":           row.entry_time,
+        "signal_time":    row.signal_time,
+        "entry_time":     row.entry_time,
         "capital_before": round(capital_before, 6),
         "bet_size":       round(float(bet), 6),
         "result":         result,
@@ -1318,6 +1447,7 @@ def main():
     time_filter_hours = set(
         versions_cfg.get("B", {}).get("time_filter_hours", [4, 5, 6, 7, 8, 17])
     )
+    temporal_filters_enabled, excluded_days, excluded_hours = get_temporal_filters(cfg)
 
     # Payouts à tester : CLI filtre les payouts actifs du YAML
     if args.payout == "all":
@@ -1334,6 +1464,10 @@ def main():
     print(f"[INFO] Capital initial   : {initial_capital}$")
     print(f"[INFO] Payouts actifs    : {payouts_to_run}")
     print(f"[INFO] MM actifs         : {mms_to_run}")
+    if excluded_days or excluded_hours:
+        print(f"[INFO] Filtres temp. UTC : {'actifs' if temporal_filters_enabled else 'inactifs'}")
+        print(f"[INFO] Jours exclus UTC  : {sorted(excluded_days) or '-'}")
+        print(f"[INFO] Heures exclues UTC: {sorted(excluded_hours) or '-'}")
 
     # ── Chargement des données ─────────────────────────────
     df_raw = load_data(args.input)
@@ -1418,6 +1552,16 @@ def main():
         # alternating
         "use_loss_streak_switch": _yaml_sparams.get("use_loss_streak_switch", True),
         "loss_streak_switch":     _yaml_sparams.get("loss_streak_switch", 2),
+        # pattern
+        "pattern":                _yaml_sparams.get("pattern", "RVRVRVR"),
+        # donch_zscore
+        "donch_thr":              _yaml_sparams.get("donch_thr",    0.00035),
+        "body_sum_thr":           _yaml_sparams.get("body_sum_thr", 0.0045),
+        "z_thr":                  _yaml_sparams.get("z_thr",        2.1),
+        "horizon":                _yaml_sparams.get("horizon",      1),
+        # micro_ensemble
+        "min_votes":              _yaml_sparams.get("min_votes",    1),
+        "variant":                _yaml_sparams.get("variant",      "btc_5m_rules_90_min_votes_1"),
     }
 
     # ── Génération des signaux par version ─────────────────
@@ -1432,6 +1576,8 @@ def main():
         )
         if args.inverse and not sig.empty:
             sig = invert_signals(sig)
+        if temporal_filters_enabled:
+            sig = apply_temporal_exclusions(sig, excluded_days, excluded_hours)
         signals_cache[version] = sig
 
     if args.inverse:
